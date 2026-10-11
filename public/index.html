@@ -204,7 +204,7 @@
 
 <script>
 var API='/api/bypass';
-var ESTIMATED_TIME_MS=15000;
+var ESTIMATED_TIME_MS=90000;
 var chips=document.querySelectorAll('.chip:not(.disabled)');
 var pickEl=document.getElementById('pick');
 var urlEl=document.getElementById('url');
@@ -284,10 +284,12 @@ goBtn.addEventListener('click',async function(){
 
   var statusSteps=[
     {at:0,text:'📡 Đang kết nối server...'},
-    {at:1000,text:'🔗 Đang mở link rút gọn...'},
-    {at:3000,text:'🛡️ Đang xử lý bảo vệ...'},
-    {at:6000,text:'🔍 Đang tìm link đích...'},
-    {at:10000,text:'⏳ Vẫn đang xử lý, vui lòng chờ...'}
+    {at:2000,text:'🔗 Đang mở link rút gọn...'},
+    {at:8000,text:'🛡️ Đang vượt Cloudflare...'},
+    {at:15000,text:'🔍 Đang tìm link đích...'},
+    {at:30000,text:'⏳ Link4m đang đếm ngược, chờ chút...'},
+    {at:60000,text:'⏳ Vẫn đang xử lý, vui lòng đợi...'},
+    {at:85000,text:'⏳ Sắp xong rồi, đợi thêm...'}
   ];
   statusTimer=setInterval(function(){
     var elapsed=performance.now()-startTime;
