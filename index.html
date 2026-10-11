@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tool nhẹ nhàng</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box;
+      font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  body {
+    min-height: 100vh;
+    background: linear-gradient(160deg, #eef4f8, #e6eef5, #eaf0f7);
+    display: flex; justify-content: center; align-items: center;
+    padding: 16px; color: #3a4a5a;
+  }
+  .card {
+    width: 100%; max-width: 340px; background: #fff;
+    border-radius: 20px; padding: 20px 18px;
+    box-shadow: 0 4px 20px rgba(120,150,180,.08);
+    border: 1px solid #edf2f7;
+  }
+  .title { text-align: center; margin-bottom: 18px; }
+  .title h1 { font-size: 17px; font-weight: 600; color: #4a6076; }
+  .title p { font-size: 10.5px; color: #9aabbd; letter-spacing: 1.5px;
+             margin-top: 4px; text-transform: uppercase; }
+  .label { font-size: 11px; color: #8fa3b8; font-weight: 500; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .chip {
+    background: #f7fafc; border: 1px solid #e8eff5; color: #7a8fa3;
+    padding: 9px 6px; border-radius: 10px; font-size: 11.5px;
+    font-weight: 500; text-align: center; cursor: pointer;
+    transition: all .2s; user-select: none;
+  }
+  .chip.active { background: #e3f0f7; border-color: #b8d4e6; color: #4a7089; font-weight: 600; }
+  .chip.disabled { opacity: .4; cursor: not-allowed; }
+  .status { font-size: 11px; color: #a0b0c0; margin-bottom: 14px; }
+  .status span { color: #7aa8c4; font-weight: 600; }
+  .input {
+    width: 100%; padding: 11px 13px; background: #f7fafc;
+    border: 1px solid #e8eff5; border-radius: 10px;
+    font-size: 12.5px; color: #4a6076; outline: none; margin-bottom: 14px;
+  }
+  .input:focus { background: #fff; border-color: #b8d4e6;
+                 box-shadow: 0 0 0 3px rgba(184,212,230,.25); }
+  .btn {
+    width: 100%; padding: 12px;
+    background: linear-gradient(135deg, #a8c8e0, #8bb4d4);
+    border: none; border-radius: 10px; color: #fff;
+    font-size: 12.5px; font-weight: 600; letter-spacing: 1.5px;
+    cursor: pointer; text-transform: uppercase; transition: all .25s;
+  }
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
+  .result {
+    margin-top: 14px; padding: 10px; background: #f0f8ff;
+    border: 1px solid #cce4f5; border-radius: 10px;
+    font-size: 11px; color: #4a7089; word-break: break-all;
+    display: none;
+  }
+  .result.ok { display: block; }
+  .result.err { display: block; background: #fff0f0;
+                border-color: #f5cccc; color: #a05050; }
+  .result a { color: #4a7089; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="title">
+    <h1>✦ Công cụ nhẹ nhàng</h1>
+    <p>Phiên bản tinh tế</p>
+  </div>
+
+  <div class="label">Chọn dịch vụ</div>
+  <div class="grid" id="grid">
+    <div class="chip disabled" data-v="Gtraffic.io">Gtraffic.io</div>
+    <div class="chip" data-v="Link4m">Link4m</div>
+    <div class="chip" data-v="Layma.net">Layma.net</div>
+    <div class="chip disabled" data-v="Traffic4k.com">Traffic4k.com</div>
+    <div class="chip" data-v="Site2s.com">Site2s.com</div>
+    <div class="chip disabled" data-v="Bbmkt.com">Bbmkt.com</div>
+    <div class="chip disabled" data-v="Ontop.link">Ontop.link</div>
+  </div>
+
+  <div class="status">Đã chọn: <span id="pick">Chưa chọn</span></div>
+
+  <div class="label">Dán URL cần xử lý</div>
+  <input class="input" id="url" type="url" placeholder="https://..." />
+
+  <button class="btn" id="go">Bắt đầu</button>
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+  const API = '/api/bypass';
+
+  const chips = document.querySelectorAll('.chip:not(.disabled)');
+  const pick = document.getElementById('pick');
+  chips.forEach(c => {
+    c.addEventListener('click', () => {
+      chips.forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      pick.textContent = c.dataset.v;
+    });
+  });
+
+  document.getElementById('go').addEventListener('click', async () => {
+    const url = document.getElementById('url').value.trim();
+    const sel = pick.textContent;
+    const resultBox = document.getElementById('result');
+    const btn = document.getElementById('go');
+
+    if (sel === 'Chưa chọn') {
+      resultBox.className = 'result err';
+      resultBox.textContent = '❌ Bạn chưa chọn dịch vụ!';
+      return;
+    }
+    if (!url.startsWith('https://')) {
+      resultBox.className = 'result err';
+      resultBox.textContent = '❌ URL phải bắt đầu bằng https://';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Đang xử lý...';
+    resultBox.className = 'result';
+    resultBox.textContent = '⏳ Đang vượt link, chờ 5-15 giây...';
+
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service: sel, url: url })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        resultBox.className = 'result ok';
+        resultBox.innerHTML = `✅ <b>Link gốc:</b><br><a href="${data.finalUrl}" target="_blank">${data.finalUrl}</a>`;
+      } else {
+        resultBox.className = 'result err';
+        resultBox.textContent = '❌ ' + data.error;
+      }
+    } catch (err) {
+      resultBox.className = 'result err';
+      resultBox.textContent = '❌ Không kết nối server.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Bắt đầu';
+    }
+  });
+</script>
+
+</body>
+</html>
