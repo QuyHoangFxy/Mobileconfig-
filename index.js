@@ -14,7 +14,7 @@ try {
   stealthLoaded = true;
   console.log('[OK] Puppeteer + Stealth loaded');
 } catch (e) {
-  console.log('[WARN] Puppeteer not available, using axios only');
+  console.log('[WARN] Puppeteer not available');
 }
 
 const PORT = process.env.PORT || 3000;
@@ -23,11 +23,8 @@ const BROWSER_IDLE_MS = 30000;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Connection': 'keep-alive',
-  'Upgrade-Insecure-Requests': '1'
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.7'
 };
 
 class BypassError extends Error {
@@ -42,9 +39,44 @@ let browserInstance = null;
 let browserLastUsed = 0;
 let browserLaunching = null;
 
+// ============================================================
+// HÀM QUAN TRỌNG: TỰ ĐỘNG TẢI CHROME NẾU CHƯA CÓ
+// ============================================================
+async function ensureChromeInstalled() {
+  const fs = require('fs');
+  const path = require('path');
+
+  const cacheDir = process.env.PUPPETEER_CACHE_DIR || path.join(process.cwd(), '.cache', 'puppeteer');
+
+  console.log('[INFO] Kiểm tra Chrome tại: ' + cacheDir);
+
+  if (fs.existsSync(cacheDir)) {
+    const dirs = fs.readdirSync(cacheDir).filter(d => d.startsWith('chrome'));
+    if (dirs.length > 0) {
+      console.log('[OK] Chrome đã có sẵn: ' + dirs.join(', '));
+      return true;
+    }
+  }
+
+  console.log('[INFO] Chrome chưa có, đang tải (~350MB, có thể mất 3-5 phút)...');
+
+  try {
+    const { execSync } = require('child_process');
+    execSync('npx puppeteer browsers install chrome', {
+      stdio: 'inherit',
+      timeout: 600000
+    });
+    console.log('[OK] Chrome đã tải xong');
+    return true;
+  } catch (err) {
+    console.error('[ERROR] Không tải được Chrome: ' + err.message);
+    return false;
+  }
+}
+
 async function getBrowser() {
   if (!puppeteer) {
-    throw new BypassError('Puppeteer chưa cài được. Chỉ dùng Layma.net hoặc Site2s.com.', 'NO_PUPPETEER');
+    throw new BypassError('Puppeteer chưa cài.', 'NO_PUPPETEER');
   }
 
   const now = Date.now();
@@ -59,9 +91,7 @@ async function getBrowser() {
     }
   }
 
-  if (browserLaunching) {
-    return browserLaunching;
-  }
+  if (browserLaunching) return browserLaunching;
 
   browserLaunching = puppeteer.launch({
     headless: 'new',
@@ -94,8 +124,14 @@ async function getBrowser() {
   }
 }
 
+// ============================================================
+// CÁC HÀM BYPASS (giữ nguyên)
+// ============================================================
 async function bypassLink4m(url) {
   console.log('[INFO] Link4m: ' + url);
+
+  // Đảm bảo Chrome đã có trước khi launch
+  await ensureChromeInstalled();
 
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -103,7 +139,6 @@ async function bypassLink4m(url) {
   try {
     await page.setViewport({ width: 800, height: 600 });
     await page.setUserAgent(HEADERS['User-Agent']);
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'vi-VN,vi;q=0.9' });
 
     await page.setRequestInterception(true);
     page.on('request', (req) => {
@@ -132,10 +167,7 @@ async function bypassLink4m(url) {
     );
 
     const finalUrl = await handle.jsonValue();
-
-    if (!finalUrl) {
-      throw new BypassError('Không tìm thấy link đích từ Link4m.', 'NOT_FOUND');
-    }
+    if (!finalUrl) throw new BypassError('Không tìm thấy link đích.', 'NOT_FOUND');
 
     console.log('[OK] Link4m: ' + finalUrl);
     return finalUrl;
@@ -160,49 +192,33 @@ async function bypassGeneric(url, excludeDomain, siteName) {
     throw new BypassError('Không kết nối được ' + siteName + ': ' + err.message, 'NETWORK');
   }
 
-  console.log('[INFO] ' + siteName + ': HTTP ' + response.status);
-
-  if (response.status === 403) {
-    throw new BypassError(siteName + ' đã bật Cloudflare (403). Thử site khác.', 'FORBIDDEN');
-  }
-  if (response.status === 404) {
-    throw new BypassError('Link ' + siteName + ' không tồn tại hoặc hết hạn.', 'NOT_FOUND');
-  }
-  if (response.status >= 400) {
-    throw new BypassError(siteName + ' trả về HTTP ' + response.status + '.', 'HTTP_ERROR');
-  }
+  if (response.status === 403) throw new BypassError(siteName + ' chặn (403).', 'FORBIDDEN');
+  if (response.status === 404) throw new BypassError('Link không tồn tại.', 'NOT_FOUND');
+  if (response.status >= 400) throw new BypassError(siteName + ' HTTP ' + response.status, 'HTTP_ERROR');
 
   const $ = cheerio.load(response.data);
   const selectors = ['a#btn6', 'a.get-link', 'a#continue', 'a.btn-primary'];
 
   for (let i = 0; i < selectors.length; i++) {
     const link = $(selectors[i]).attr('href');
-    if (link && link.indexOf('http') === 0 && link.indexOf(excludeDomain) === -1) {
-      console.log('[OK] ' + siteName + ': ' + link);
-      return link;
-    }
+    if (link && link.indexOf('http') === 0 && link.indexOf(excludeDomain) === -1) return link;
   }
 
   const allLinks = $('a[href]');
   for (let i = 0; i < allLinks.length; i++) {
     const href = $(allLinks[i]).attr('href');
-    if (href && href.indexOf('http') === 0 && href.indexOf(excludeDomain) === -1) {
-      console.log('[OK] ' + siteName + ' (fallback): ' + href);
-      return href;
-    }
+    if (href && href.indexOf('http') === 0 && href.indexOf(excludeDomain) === -1) return href;
   }
 
-  throw new BypassError('Không tìm thấy link đích trong ' + siteName + '.', 'SELECTOR');
+  throw new BypassError('Không tìm thấy link đích.', 'SELECTOR');
 }
 
-async function bypassLayma(url) {
-  return bypassGeneric(url, 'layma.net', 'Layma.net');
-}
+const bypassLayma = (url) => bypassGeneric(url, 'layma.net', 'Layma.net');
+const bypassSite2s = (url) => bypassGeneric(url, 'site2s.com', 'Site2s.com');
 
-async function bypassSite2s(url) {
-  return bypassGeneric(url, 'site2s.com', 'Site2s.com');
-}
-
+// ============================================================
+// EXPRESS
+// ============================================================
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10kb' }));
@@ -217,9 +233,6 @@ app.post('/api/bypass', async function (req, res) {
     if (typeof service !== 'string' || typeof url !== 'string') {
       return res.status(400).json({ success: false, error: 'Dữ liệu không hợp lệ.' });
     }
-    if (url.length > 2000) {
-      return res.status(400).json({ success: false, error: 'URL quá dài.' });
-    }
     if (url.indexOf('https://') !== 0) {
       return res.status(400).json({ success: false, error: 'URL phải bắt đầu bằng https://' });
     }
@@ -227,43 +240,24 @@ app.post('/api/bypass', async function (req, res) {
     console.log('[INFO] Request: ' + service + ' -> ' + url);
 
     let finalUrl;
-
-    if (service === 'Link4m') {
-      finalUrl = await bypassLink4m(url);
-    } else if (service === 'Layma.net') {
-      finalUrl = await bypassLayma(url);
-    } else if (service === 'Site2s.com') {
-      finalUrl = await bypassSite2s(url);
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: 'Chưa hỗ trợ: ' + service + '. Hiện có: Link4m, Layma.net, Site2s.com'
-      });
-    }
+    if (service === 'Link4m') finalUrl = await bypassLink4m(url);
+    else if (service === 'Layma.net') finalUrl = await bypassLayma(url);
+    else if (service === 'Site2s.com') finalUrl = await bypassSite2s(url);
+    else return res.status(400).json({ success: false, error: 'Chưa hỗ trợ: ' + service });
 
     return res.json({ success: true, finalUrl: finalUrl });
 
   } catch (err) {
     if (err instanceof BypassError) {
-      console.warn('[WARN] ' + err.code + ': ' + err.message);
       return res.status(422).json({ success: false, error: err.message, code: err.code });
     }
-    console.error('[ERROR] ' + (err && err.message ? err.message : 'Unknown'));
-    console.error(err && err.stack ? err.stack : '');
-    return res.status(500).json({
-      success: false,
-      error: 'Lỗi server: ' + (err && err.message ? err.message : 'không xác định')
-    });
+    console.error('[ERROR] ' + err.message);
+    return res.status(500).json({ success: false, error: 'Lỗi: ' + err.message });
   }
 });
 
 app.get('/health', function (req, res) {
-  res.json({
-    status: 'ok',
-    uptime: Math.floor(process.uptime()),
-    puppeteer: !!puppeteer,
-    stealth: stealthLoaded
-  });
+  res.json({ status: 'ok', puppeteer: !!puppeteer });
 });
 
 app.get('*', function (req, res) {
@@ -272,21 +266,11 @@ app.get('*', function (req, res) {
 
 const server = app.listen(PORT, function () {
   console.log('[OK] Server chạy tại port ' + PORT);
-  console.log('[OK] Puppeteer: ' + (puppeteer ? 'BẬT' : 'TẮT'));
 });
 
 process.on('SIGTERM', async function () {
-  console.log('[INFO] Đang tắt server...');
   if (browserInstance) {
     try { await browserInstance.close(); } catch (e) {}
   }
   server.close(function () { process.exit(0); });
-});
-
-process.on('uncaughtException', function (err) {
-  console.error('[ERROR] Uncaught: ' + err.message);
-});
-
-process.on('unhandledRejection', function (err) {
-  console.error('[ERROR] Rejection: ' + err);
 });
